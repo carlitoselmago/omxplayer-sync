@@ -24,15 +24,16 @@ import collections
 from time import sleep, time
 from optparse import OptionParser, BadOptionError, AmbiguousOptionError
 from subprocess import Popen
+
 try:
     from subprocess import DEVNULL
 except ImportError:
     import os
     DEVNULL = open(os.devnull, 'wb')
 
-SYNC_TOLERANCE = .05
-SYNC_GRACE_TIME = 5
-SYNC_JUMP_AHEAD = 3
+SYNC_TOLERANCE = 0.3#.05
+SYNC_GRACE_TIME = 10#5
+SYNC_JUMP_AHEAD = 2#3
 
 OMXPLAYER = 'omxplayer'
 OMXPLAYER_DBUS_ADDR='/tmp/omxplayerdbus.%s' % getpass.getuser()
@@ -153,10 +154,10 @@ class OMXPlayerSync():
 
         if not len(self.playlist):
             sys.exit(0)
-           
+
         if self.options.loop and len(self.playlist) == 1:
             self.omxplayer_options.append("--loop")
-            
+
         if self.options.aspect in ('fill', 'stretch', 'letterbox'):
             self.omxplayer_options.append("--aspect-mode %s" % self.options.aspect)
 
@@ -251,6 +252,7 @@ class OMXPlayerSync():
                 deviation = self.position_master - self.position_local
                 deviations.append(deviation)
                 median_deviation = self.median(list(deviations))
+                #print("median_deviation",median_deviation)
 
                 if self.options.verbose:
                     sys.stdout.write("local: %.2f %.0f master: %.2f %.0f deviation: %.2f median_deviation: %.2f filename: %s\n" % (
@@ -285,14 +287,17 @@ class OMXPlayerSync():
                 if abs(median_deviation) > SYNC_TOLERANCE \
                 and self.position_local > SYNC_GRACE_TIME \
                 and self.position_master > SYNC_GRACE_TIME:
+                    print("MUST RESYNC ",median_deviation)
+                    start_time = time()
                     if self.options.verbose:
                         print("jump to %.2f" % (self.position_master + SYNC_JUMP_AHEAD))
                         print("enter pause...")
                     if not self.controller.playPause():
                         break
-                    if not self.controller.setPosition(self.position_master + SYNC_JUMP_AHEAD):
+                    if not self.controller.setPosition(self.position_master + abs(median_deviation+SYNC_JUMP_AHEAD)):#SYNC_JUMP_AHEAD):
                         break
-
+                    elapsed=float(time() - start_time)
+                    print("elapsed in resynching",elapsed,"::::::::::::::::::::::::")
                     wait_for_sync = True
                     wait_after_sync = time()
 
@@ -380,8 +385,14 @@ class OMXPlayerSync():
     # slave specific
     #
     def read_position_master(self):
+        start_time = time()
         data = self.sock.recvfrom(1024)[0].decode('utf-8').split('%', 1)
-        self.position_master = float(data[0])
+        elapsed=float(time() - start_time)
+        #print("elapsed",elapsed)
+        #if elapsed<0.9:
+            #print("using low level ping to set position:::")
+        self.position_master = (float(data[0])+elapsed)
+
         self.filename_master = data[1]
 
     def median(self, lst):
